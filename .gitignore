@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.pyc
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+
+# Environment variables
+.env
+.env*.local
+
+# IDE & OS files
+.DS_Store
+.vscode/
+.idea/
