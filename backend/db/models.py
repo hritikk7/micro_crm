@@ -94,6 +94,7 @@ class Interaction(Base):
     date: Mapped[date_] = mapped_column(Date, nullable=False)
     type: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str] = mapped_column(Text, nullable=False)
+    urgency: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -102,6 +103,10 @@ class Interaction(Base):
 
 
 class CompanyScore(Base):
+    """Current urgency state per company, as picked by the user on the Quick
+    Log Form. Not an AI output cache — there is no scoring engine (TRD v1.1).
+    """
+
     __tablename__ = "company_scores"
     __table_args__ = (
         CheckConstraint(
@@ -114,16 +119,9 @@ class CompanyScore(Base):
         ForeignKey("companies.id"), unique=True, nullable=False
     )
     urgency: Mapped[str] = mapped_column(Text, nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
-    ai_brief: Mapped[str | None] = mapped_column(Text)
-    blocker: Mapped[str | None] = mapped_column(Text)
-    priority_rank: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    scored_at: Mapped[datetime] = mapped_column(
+    urgency_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
-    insight_scored_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    invalidated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    interaction_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     company: Mapped["Company"] = relationship(back_populates="score", lazy="raise")
