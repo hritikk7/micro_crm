@@ -1,0 +1,445 @@
+{
+  "companies": [
+    {
+      "id": "C001",
+      "name": "Acme Retail",
+      "industry": "Retail",
+      "status": "prospect",
+      "size": 250
+    },
+    {
+      "id": "C002",
+      "name": "Northstar Labs",
+      "industry": "SaaS",
+      "status": "customer",
+      "size": 80
+    },
+    {
+      "id": "C003",
+      "name": "Greenfield Foods",
+      "industry": "Food & Beverage",
+      "status": "prospect",
+      "size": 500
+    },
+    {
+      "id": "C004",
+      "name": "BrightPath Consulting",
+      "industry": "Consulting",
+      "status": "customer",
+      "size": 35
+    },
+    {
+      "id": "C005",
+      "name": "UrbanFleet",
+      "industry": "Logistics",
+      "status": "prospect",
+      "size": 150
+    },
+    {
+      "id": "C006",
+      "name": "Bluebird Health",
+      "industry": "Healthcare",
+      "status": "customer",
+      "size": 120
+    },
+    {
+      "id": "C007",
+      "name": "Meridian Finance",
+      "industry": "Financial Services",
+      "status": "prospect",
+      "size": 700
+    },
+    {
+      "id": "C008",
+      "name": "PixelCraft Studio",
+      "industry": "Digital Agency",
+      "status": "customer",
+      "size": 25
+    }
+  ],
+  "contacts": [
+    {
+      "id": "P001",
+      "company_id": "C001",
+      "name": "Sarah Chen",
+      "role": "Head of Operations",
+      "email": "sarah@acmeretail.example"
+    },
+    {
+      "id": "P002",
+      "company_id": "C001",
+      "name": "Michael Wong",
+      "role": "CFO",
+      "email": "michael@acmeretail.example"
+    },
+    {
+      "id": "P003",
+      "company_id": "C002",
+      "name": "James Patel",
+      "role": "VP Engineering",
+      "email": "james@northstarlabs.example"
+    },
+    {
+      "id": "P004",
+      "company_id": "C002",
+      "name": "Lisa Morgan",
+      "role": "COO",
+      "email": "lisa@northstarlabs.example"
+    },
+    {
+      "id": "P005",
+      "company_id": "C003",
+      "name": "David Brown",
+      "role": "Procurement Director",
+      "email": "david@greenfield.example"
+    },
+    {
+      "id": "P006",
+      "company_id": "C004",
+      "name": "Anna Rossi",
+      "role": "Founder",
+      "email": "anna@brightpath.example"
+    },
+    {
+      "id": "P007",
+      "company_id": "C005",
+      "name": "Tom Wilson",
+      "role": "Head of Logistics",
+      "email": "tom@urbanfleet.example"
+    },
+    {
+      "id": "P008",
+      "company_id": "C005",
+      "name": "Rachel Kim",
+      "role": "Product Manager",
+      "email": "rachel@urbanfleet.example"
+    },
+    {
+      "id": "P009",
+      "company_id": "C006",
+      "name": "Maria Garcia",
+      "role": "Operations Manager",
+      "email": "maria@bluebirdhealth.example"
+    },
+    {
+      "id": "P010",
+      "company_id": "C007",
+      "name": "Robert Smith",
+      "role": "CIO",
+      "email": "robert@meridian.example"
+    },
+    {
+      "id": "P011",
+      "company_id": "C007",
+      "name": "Priya Shah",
+      "role": "VP Finance",
+      "email": "priya@meridian.example"
+    },
+    {
+      "id": "P012",
+      "company_id": "C008",
+      "name": "Alex Turner",
+      "role": "Founder",
+      "email": "alex@pixelcraft.example"
+    }
+  ],
+  "interactions": [
+    {
+      "company_id": "C001",
+      "contact_id": "P001",
+      "contact_name": "Sarah Chen",
+      "date": "2026-05-06",
+      "type": "meeting",
+      "notes": "Sarah is interested in reducing manual reporting. Asked for a demo for her operations team.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C001",
+      "contact_id": "P001",
+      "contact_name": "Sarah Chen",
+      "date": "2026-05-09",
+      "type": "email",
+      "notes": "Sent demo and pricing. Sarah said she needs to discuss this internally.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C001",
+      "contact_id": "P002",
+      "contact_name": "Michael Wong",
+      "date": "2026-05-14",
+      "type": "meeting",
+      "notes": "Michael joined for the first time. He likes the idea but thinks the annual contract is expensive.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C001",
+      "contact_id": "P001",
+      "contact_name": "Sarah Chen",
+      "date": "2026-05-16",
+      "type": "email",
+      "notes": "Sarah said Michael wants to see a smaller initial commitment before approving anything.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C001",
+      "contact_id": "P001",
+      "contact_name": "Sarah Chen",
+      "date": "2026-05-22",
+      "type": "email",
+      "notes": "Sarah hasn't heard back from Michael yet. She suggested checking in after their quarterly planning meeting.",
+      "urgency": "stale"
+    },
+    {
+      "company_id": "C002",
+      "contact_id": "P003",
+      "contact_name": "James Patel",
+      "date": "2026-06-03",
+      "type": "meeting",
+      "notes": "Very happy with the product. Asked about SSO and additional API limits.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C002",
+      "contact_id": "P004",
+      "contact_name": "Lisa Morgan",
+      "date": "2026-06-05",
+      "type": "email",
+      "notes": "Lisa asked whether we could offer a team-wide plan at renewal.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C002",
+      "contact_id": "P003",
+      "contact_name": "James Patel",
+      "date": "2026-06-18",
+      "type": "support_call",
+      "notes": "SSO issue resolved. James mentioned that the engineering team is growing quickly.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C002",
+      "contact_id": "P004",
+      "contact_name": "Lisa Morgan",
+      "date": "2026-06-25",
+      "type": "meeting",
+      "notes": "Discussed expanding from 40 to approximately 70 users. Wants proposal before next month's budget meeting.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C003",
+      "contact_id": "P005",
+      "contact_name": "David Brown",
+      "date": "2026-07-02",
+      "type": "email",
+      "notes": "Requested pricing for approximately 100 users. They are also evaluating two competitors.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C003",
+      "contact_id": "P005",
+      "contact_name": "David Brown",
+      "date": "2026-07-05",
+      "type": "meeting",
+      "notes": "David likes the product but said implementation time is a major concern.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C003",
+      "contact_id": "P005",
+      "contact_name": "David Brown",
+      "date": "2026-07-11",
+      "type": "email",
+      "notes": "Sent implementation plan. No response yet.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C003",
+      "contact_id": "P005",
+      "contact_name": "David Brown",
+      "date": "2026-07-18",
+      "type": "email",
+      "notes": "David replied: \"Still discussing internally. Will get back to you.\"",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C004",
+      "contact_id": "P006",
+      "contact_name": "Anna Rossi",
+      "date": "2026-06-10",
+      "type": "meeting",
+      "notes": "Anna wants to automate weekly client reporting. Very interested in the product.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C004",
+      "contact_id": "P006",
+      "contact_name": "Anna Rossi",
+      "date": "2026-06-12",
+      "type": "email",
+      "notes": "Signed agreement. Wants to start with 10 users.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C004",
+      "contact_id": "P006",
+      "contact_name": "Anna Rossi",
+      "date": "2026-06-28",
+      "type": "meeting",
+      "notes": "Onboarding went well. Anna asked about adding their contractors later.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C004",
+      "contact_id": "P006",
+      "contact_name": "Anna Rossi",
+      "date": "2026-07-15",
+      "type": "email",
+      "notes": "Asked whether we can integrate with their accounting software.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C005",
+      "contact_id": "P007",
+      "contact_name": "Tom Wilson",
+      "date": "2026-07-22",
+      "type": "meeting",
+      "notes": "Tom said the operations team spends several hours every week compiling data manually.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C005",
+      "contact_id": "P008",
+      "contact_name": "Rachel Kim",
+      "date": "2026-07-24",
+      "type": "demo",
+      "notes": "Rachel liked the workflow but said their IT team will need to review security before moving forward.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C005",
+      "contact_id": "P007",
+      "contact_name": "Tom Wilson",
+      "date": "2026-07-29",
+      "type": "email",
+      "notes": "Sent security documentation. Tom said he'd introduce us to IT.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C005",
+      "contact_id": "P007",
+      "contact_name": "Tom Wilson",
+      "date": "2026-08-05",
+      "type": "email",
+      "notes": "No introduction yet. Tom is currently traveling and said to reconnect next week.",
+      "urgency": "hot"
+    },
+    {
+      "company_id": "C006",
+      "contact_id": "P009",
+      "contact_name": "Maria Garcia",
+      "date": "2026-05-20",
+      "type": "meeting",
+      "notes": "Customer is happy overall. Wants better reporting for regional managers.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C006",
+      "contact_id": "P009",
+      "contact_name": "Maria Garcia",
+      "date": "2026-06-08",
+      "type": "email",
+      "notes": "Asked about adding 20 more users.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C006",
+      "contact_id": "P009",
+      "contact_name": "Maria Garcia",
+      "date": "2026-06-15",
+      "type": "email",
+      "notes": "Expansion proposal sent.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C006",
+      "contact_id": "P009",
+      "contact_name": "Maria Garcia",
+      "date": "2026-07-01",
+      "type": "meeting",
+      "notes": "Maria said budget has been frozen until September. Still interested in expansion.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C006",
+      "contact_id": "P009",
+      "contact_name": "Maria Garcia",
+      "date": "2026-07-30",
+      "type": "email",
+      "notes": "Asked if we could revisit the expansion in September.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C007",
+      "contact_id": "P010",
+      "contact_name": "Robert Smith",
+      "date": "2026-07-08",
+      "type": "meeting",
+      "notes": "Robert is interested but said procurement and security review could take 6–8 weeks.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C007",
+      "contact_id": "P011",
+      "contact_name": "Priya Shah",
+      "date": "2026-07-10",
+      "type": "email",
+      "notes": "Priya asked for a detailed ROI calculation before they proceed.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C007",
+      "contact_id": "P010",
+      "contact_name": "Robert Smith",
+      "date": "2026-07-19",
+      "type": "email",
+      "notes": "Sent security documentation and ROI template.",
+      "urgency": "watch"
+    },
+    {
+      "company_id": "C007",
+      "contact_id": "P010",
+      "contact_name": "Robert Smith",
+      "date": "2026-08-01",
+      "type": "email",
+      "notes": "Robert hasn't responded.",
+      "urgency": "hot"
+    },
+    {
+      "company_id": "C008",
+      "contact_id": "P012",
+      "contact_name": "Alex Turner",
+      "date": "2026-06-03",
+      "type": "meeting",
+      "notes": "Customer is very happy. Mentioned they may refer several clients to us.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C008",
+      "contact_id": "P012",
+      "contact_name": "Alex Turner",
+      "date": "2026-07-12",
+      "type": "email",
+      "notes": "Asked about a referral program.",
+      "urgency": "stable"
+    },
+    {
+      "company_id": "C008",
+      "contact_id": "P012",
+      "contact_name": "Alex Turner",
+      "date": "2026-08-02",
+      "type": "email",
+      "notes": "No response after sending referral information.",
+      "urgency": "watch"
+    }
+  ]
+}
