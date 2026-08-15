@@ -23,6 +23,7 @@ from sqlalchemy.exc import DBAPIError
 
 from config.settings import settings
 from db.database import session_scope
+from db.models import CompanyScore
 from services import data_service
 
 logger = logging.getLogger(__name__)
@@ -38,15 +39,14 @@ TABLES:
   contacts(id TEXT PK, company_id TEXT FK, name TEXT, role TEXT, email TEXT, created_at TIMESTAMPTZ)
 
   interactions(id BIGINT PK, company_id TEXT FK, contact_name TEXT, contact_id TEXT FK,
-               date DATE, type TEXT, notes TEXT, created_at TIMESTAMPTZ)
+               date DATE, type TEXT, notes TEXT, urgency TEXT, created_at TIMESTAMPTZ)
     type values: 'meeting', 'email', 'call', 'demo', 'support_call'
+    urgency: user-set on the Quick Log Form; NULL for interactions logged via chat
 
-  company_scores(company_id TEXT UK FK, urgency TEXT, reason TEXT,
-                 recommended_action TEXT, priority_rank INTEGER, scored_at TIMESTAMPTZ,
-                 invalidated_at TIMESTAMPTZ)
-    urgency values: 'hot', 'watch', 'stable', 'stale'
-    NOTE: this table may be EMPTY or missing rows for some/all companies in
-    this build. Do not assume every company has a score row.
+  company_scores(company_id TEXT UK FK, urgency TEXT, urgency_rank INTEGER, updated_at TIMESTAMPTZ)
+    urgency values: 'hot', 'watch', 'stable', 'stale' — user-set, not AI-scored.
+    You (the agent) cannot change this. It only changes when the user submits
+    the Quick Log Form with an urgency label — never through chat.
 
 IMPORTANT CONSTRAINTS:
   - You may only use SELECT (or a read-only WITH ... SELECT) statements in query_database.
@@ -148,7 +148,9 @@ async def insert_interaction(
     """
     Logs a new interaction for a company. Use this when the user says they
     just spoke with, emailed, or met with someone. Do NOT modify existing
-    records — this only inserts.
+    records — this only inserts. This tool does NOT set urgency — urgency
+    is only ever set by the user via the Quick Log Form, never inferred by
+    you. Do not ask the user for an urgency level.
 
     Args:
         company_id: The company's ID (e.g. "C001"). Look it up via
@@ -186,8 +188,8 @@ async def insert_interaction(
                 interaction_date=parsed_date,
                 type_=type,
                 notes=notes,
+                urgency=None,  # chat never sets urgency; company_scores is untouched
             )
-            await data_service.invalidate_score(db, company_id)
             await db.commit()
     except Exception as exc:
         logger.exception("insert_interaction failed")
@@ -235,6 +237,8 @@ async def insert_company(
             company = await data_service.create_company(
                 db, name=name, industry=industry, status=status, size=size
             )
+            # Seed a default Stale score so it appears on the dashboard immediately
+            db.add(CompanyScore(company_id=company.id, urgency="stale", urgency_rank=4))
             await db.commit()
     except Exception as exc:
         logger.exception("insert_company failed")
