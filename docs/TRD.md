@@ -3,11 +3,12 @@
 
 ---
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Status:** Draft  
 **Author:** Ritik  
 **Last Updated:** August 2026  
 **Companion Document:** PRD v1.2  
+**Changes from v1.0:** Sections 1.2, 1.3, 2.1–2.4, 3, 4.3, 5.1–5.3, 6, Appendices A/B/C — the AI priority-scoring engine (`priority_service`, batch/single LLM scoring, 24h TTL invalidation) is removed. Urgency is now a label the user picks (Hot/Watch/Stable/Stale) when logging an interaction via the Quick Log Form; it's written straight to the DB and the dashboard just reads and sorts. `insight_service` (per-company AI brief + draft message) is unchanged in spirit but no longer caches into `company_scores`, since that table no longer carries AI-generated fields — it regenerates on every request instead. `POST /api/companies`, `GET /api/companies`, and `POST /api/interactions` are confirmed in-scope as plain REST endpoints (Quick Log Form needs a non-chat way to write).
 
 ---
 
@@ -15,7 +16,7 @@
 
 1. [[System Architecture & Component Interaction](https://claude.ai/chat/16b3c988-ecfe-4db7-a9c5-cc5b5e60874c#1-system-architecture--component-interaction)](#1-system-architecture--component-interaction)
 2. [[Database Schema & Data Models](https://claude.ai/chat/16b3c988-ecfe-4db7-a9c5-cc5b5e60874c#2-database-schema--data-models)](#2-database-schema--data-models)
-3. [[AI Scoring Engine & Invalidation Strategy](https://claude.ai/chat/16b3c988-ecfe-4db7-a9c5-cc5b5e60874c#3-ai-scoring-engine--invalidation-strategy)](#3-ai-scoring-engine--invalidation-strategy)
+3. [Urgency Model](#3-urgency-model)
 4. [[Pipeline Chat Agent & Tooling](https://claude.ai/chat/16b3c988-ecfe-4db7-a9c5-cc5b5e60874c#4-pipeline-chat-agent--tooling)](#4-pipeline-chat-agent--tooling)
 5. [[API Contracts & Server Action Signatures](https://claude.ai/chat/16b3c988-ecfe-4db7-a9c5-cc5b5e60874c#5-api-contracts--server-action-signatures)](#5-api-contracts--server-action-signatures)
 6. [[Error Handling & Edge Cases](https://claude.ai/chat/16b3c988-ecfe-4db7-a9c5-cc5b5e60874c#6-error-handling--edge-cases)](#6-error-handling--edge-cases)
@@ -53,13 +54,13 @@
 │         │                │                 │               │       │
 │  ┌──────▼────────────────▼─────────────────▼───────────────▼────┐ │
 │  │                     Service Layer                              │ │
-│  │  priority_service  insight_service  agent_service  data_svc   │ │
+│  │      insight_service      agent_service      data_service     │ │
 │  └──────────────────────────────┬─────────────────────────────┘  │
 │                                  │                                 │
 │  ┌───────────────────────────────▼───────────────────────────┐   │
 │  │                      AI Layer                              │   │
-│  │  LangChain (Scorer + Insight + Draft)  LangGraph (Agent)  │   │
-│  │  ─────────────────────────────────    ─────────────────   │   │
+│  │  LangChain (Insight + Draft)          LangGraph (Agent)   │   │
+│  │  ─────────────────────────            ─────────────────   │   │
 │  │  ChatOpenAI → OpenRouter → Gemini      SQL Agent Graph     │   │
 │  └───────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────┬───────────────────────────────┘
@@ -80,10 +81,11 @@
 | Next.js Chat | Manages conversation history in React state, streams SSE chunks | SQL generation, DB access |
 | FastAPI Routers | HTTP validation, request parsing, SSE scaffolding | AI logic, DB queries |
 | Services Layer | Orchestrates AI + DB calls, maps DB rows → response shapes | HTTP concerns |
-| priority_service | Batch scores all companies via LangChain structured output | Streaming |
-| insight_service | Streams per-company AI brief + draft via LangChain | Scoring |
-| agent_service | Runs LangGraph SQL agent loop, handles write tools | Score caching |
-| data_service | Raw DB queries (no AI), used by all services | AI calls |
+| insight_service | Streams per-company AI brief + draft via LangChain | Urgency, ranking |
+| agent_service | Runs LangGraph SQL agent loop, handles write tools | Urgency, ranking |
+| data_service | Raw DB queries (no AI), used by all services — including the urgency read/write path | AI calls |
+
+> **Note:** `priority_service` is removed. There is no AI scoring engine. Urgency is a value the user picks when logging an interaction (§3), stored directly, and read straight off `company_scores` for the dashboard — zero LLM calls in that path.
 
 ### 1.3 Data Flow — Primary User Flows
 
@@ -92,15 +94,10 @@
 ```
 Browser
   1. GET /api/priorities
-        → data_service: fetch all companies + last interaction per company
-        → priority_service: check company_scores cache
-            → cache HIT: return cached scores (scored_at < 24h, not invalidated)
-            → cache MISS: call LangChain batch scorer
-                → builds prompt context from all companies + interactions
-                → LLM returns structured JSON array
-                → upsert into company_scores
-                → return scored array
+        → data_service: fetch all companies JOIN company_scores
+        → ORDER BY urgency_rank ASC (hot=1, watch=2, stable=3, stale=4)
         → return ranked CompanyWithScore[]
+        → zero AI calls — pure DB read
   2. GET /api/companies (parallel)
         → data_service: fetch all companies + contacts
         → return Company[] with Contact[]
@@ -112,12 +109,10 @@ Browser
 Browser (user clicks card)
   1. GET /api/company/{id}/insight  (SSE)
         → data_service: fetch company + all interactions + contacts
-        → insight_service: check if cached ai_brief/blocker/next_action in company_scores
-            → cache HIT (scored_at < 1h): stream from cache
-            → cache MISS: LangChain streaming call
-                → builds per-company prompt context
-                → streams tokens via SSE
-                → accumulates + stores full insight in company_scores
+        → insight_service: LangChain streaming call (no cache)
+            → builds per-company prompt context
+            → streams ai_brief + blocker + next_action tokens via SSE
+        → nothing persisted — regenerated on every expand
 ```
 
 #### Flow C: Draft Message Streaming
@@ -135,16 +130,17 @@ Browser (user clicks "Draft Message")
 
 ```
 Browser
-  1. POST /api/interactions  { company_id, contact_name, type, notes, date }
-        → data_service: INSERT into interactions
-        → priority_service.invalidate(company_id)
-            → UPDATE company_scores SET invalidated_at = NOW() WHERE company_id = ?
-        → priority_service.rescore_single(company_id)
-            → fetch company + all interactions
-            → LangChain structured output call (single company)
-            → UPSERT company_scores
-        → return { success: true, updated_score: CompanyScore }
-  2. Frontend re-fetches /api/priorities or applies optimistic update
+  1. User fills Quick Log Form: Contact, Type, Notes, Urgency (Hot/Watch/Stable/Stale)
+  2. POST /api/interactions  { company_id, contact_name, contact_id, type, notes, date, urgency }
+        → data_service: INSERT into interactions (urgency included)
+        → data_service: UPSERT company_scores
+              SET urgency = body.urgency,
+                  urgency_rank = URGENCY_RANK[body.urgency],
+                  updated_at = NOW()
+              WHERE company_id = body.company_id
+        → return { success: true, interaction_id }
+        → zero AI calls — the user's own selection IS the score
+  3. Frontend re-fetches /api/priorities → dashboard re-sorts immediately
 ```
 
 #### Flow E: Pipeline Chat
@@ -160,7 +156,10 @@ Browser
             → node: evaluate_result (retry if needed, max 3)
             → node: formulate_answer
             → WRITE PATH: if intent = insert
-                → node: call insert tool → DB write → rescore_single
+                → node: call insert tool → DB write only
+                → interactions logged via chat leave urgency = NULL and do NOT
+                  touch company_scores — urgency is set only through the Quick
+                  Log Form (Flow D). Chat is for logging/asking, not ranking.
         → SSE stream agent reasoning tokens
         → final text response
   2. Frontend appends to session_history (React state only — no DB)
@@ -244,49 +243,54 @@ CREATE TABLE interactions (
     type            TEXT        NOT NULL        -- 'meeting'|'email'|'call'|'demo'|'support_call'
                     CHECK (type IN ('meeting', 'email', 'call', 'demo', 'support_call')),
     notes           TEXT        NOT NULL,
+    urgency         TEXT        CHECK (urgency IN ('hot', 'watch', 'stable', 'stale')),
+                                -- user-selected on the Quick Log Form; NULL for
+                                -- interactions logged via chat (chat doesn't set urgency)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Queries: all interactions for a company (dashboard + agent)
 CREATE INDEX idx_interactions_company     ON interactions(company_id);
--- Queries: most recent interaction per company (recency scoring)
+-- Queries: most recent interaction per company (recency)
 CREATE INDEX idx_interactions_company_date ON interactions(company_id, date DESC);
 -- Agent queries: search interactions by contact
 CREATE INDEX idx_interactions_contact     ON interactions(contact_id);
 
 -- ─────────────────────────────────────────────
--- company_scores  (AI output cache)
+-- company_scores
+-- Stores the current urgency state per company, as picked by the user.
+-- Written whenever a Quick Log Form submission includes an urgency label.
+-- Read by the dashboard — no AI calls at read time.
 -- ─────────────────────────────────────────────
 CREATE TABLE company_scores (
-    id                  BIGSERIAL   PRIMARY KEY,
-    company_id          TEXT        NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
-    urgency             TEXT        NOT NULL
-                        CHECK (urgency IN ('hot', 'watch', 'stable', 'stale')),
-    reason              TEXT        NOT NULL,   -- one-line AI reason
-    recommended_action  TEXT        NOT NULL,   -- specific next step
-    ai_brief            TEXT,                   -- 2-3 sentence relationship brief (populated on expand)
-    blocker             TEXT,                   -- single blocker (populated on expand)
-    priority_rank       INTEGER     NOT NULL DEFAULT 0,
-    scored_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    insight_scored_at   TIMESTAMPTZ,            -- separate timestamp for deeper insight
-    invalidated_at      TIMESTAMPTZ,            -- set when a new interaction is logged
-    interaction_count   INTEGER     NOT NULL DEFAULT 0  -- snapshot at score time (cheap staleness check)
+    id           BIGSERIAL   PRIMARY KEY,
+    company_id   TEXT        NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
+    urgency      TEXT        NOT NULL
+                 CHECK (urgency IN ('hot', 'watch', 'stable', 'stale')),
+    urgency_rank INTEGER     NOT NULL,   -- hot=1, watch=2, stable=3, stale=4
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Dashboard primary query: all scores ranked
-CREATE INDEX idx_company_scores_rank   ON company_scores(priority_rank ASC);
--- Invalidation query
-CREATE INDEX idx_company_scores_co_id  ON company_scores(company_id);
+CREATE INDEX idx_company_scores_rank  ON company_scores(urgency_rank ASC);
+-- Upsert-on-log query
+CREATE INDEX idx_company_scores_co_id ON company_scores(company_id);
 ```
+
+> **Design note:** `urgency` is stored on `interactions` (historical record of what the user picked at that moment, nullable) and separately on `company_scores` (current dashboard state, always set). Every company gets a default `company_scores` row (`urgency='stale'`) at seed time / company-creation time so the dashboard always has something to show, even before any interaction is logged.
 
 ### 2.2 TypeScript Data Models
 
 ```typescript
 // ─── Shared enums ───────────────────────────────────────────────────────────
 
-export type CompanyStatus = 'prospect' | 'customer';
-export type UrgencyLevel  = 'hot' | 'watch' | 'stable' | 'stale';
+export type CompanyStatus   = 'prospect' | 'customer';
+export type UrgencyLevel    = 'hot' | 'watch' | 'stable' | 'stale';
 export type InteractionType = 'meeting' | 'email' | 'call' | 'demo' | 'support_call';
+
+export const URGENCY_RANK: Record<UrgencyLevel, number> = {
+  hot: 1, watch: 2, stable: 3, stale: 4,
+};
 
 // ─── Database row types (raw, from Supabase) ────────────────────────────────
 
@@ -316,22 +320,16 @@ export interface InteractionRow {
   date:         string;         // ISO date: "2026-08-05"
   type:         InteractionType;
   notes:        string;
+  urgency:      UrgencyLevel | null;  // null for chat-logged interactions
   created_at:   string;
 }
 
 export interface CompanyScoreRow {
-  id:                 number;
-  company_id:         string;
-  urgency:            UrgencyLevel;
-  reason:             string;
-  recommended_action: string;
-  ai_brief:           string | null;
-  blocker:            string | null;
-  priority_rank:      number;
-  scored_at:          string;
-  insight_scored_at:  string | null;
-  invalidated_at:     string | null;
-  interaction_count:  number;
+  id:           number;
+  company_id:   string;
+  urgency:      UrgencyLevel;
+  urgency_rank: number;
+  updated_at:   string;
 }
 
 // ─── Application-level domain types ─────────────────────────────────────────
@@ -350,6 +348,7 @@ export interface Interaction {
   date:        string;
   type:        InteractionType;
   notes:       string;
+  urgency:     UrgencyLevel | null;
   createdAt:   string;
 }
 
@@ -363,14 +362,9 @@ export interface Company {
 }
 
 export interface CompanyScore {
-  urgency:           UrgencyLevel;
-  reason:            string;
-  recommendedAction: string;
-  aiBrief:           string | null;
-  blocker:           string | null;
-  priorityRank:      number;
-  scoredAt:          string;
-  isStale:           boolean;   // invalidated_at IS NOT NULL
+  urgency:     UrgencyLevel;
+  urgencyRank: number;
+  updatedAt:   string;
 }
 
 // The combined shape served to the dashboard
@@ -391,7 +385,7 @@ export interface CompanyDetail extends CompanyWithScore {
 ### 2.3 Python / Pydantic Models (Backend)
 
 ```python
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, Literal
 from datetime import date, datetime
 
@@ -431,22 +425,16 @@ class InteractionORM(Base):
     date         = Column(Date, nullable=False)
     type         = Column(String, nullable=False)
     notes        = Column(Text, nullable=False)
+    urgency      = Column(String, nullable=True)   # null for chat-logged interactions
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 class CompanyScoreORM(Base):
     __tablename__ = "company_scores"
-    id                 = Column(BigInteger, primary_key=True, autoincrement=True)
-    company_id         = Column(String, ForeignKey("companies.id"), unique=True, nullable=False)
-    urgency            = Column(String, nullable=False)
-    reason             = Column(Text, nullable=False)
-    recommended_action = Column(Text, nullable=False)
-    ai_brief           = Column(Text)
-    blocker            = Column(Text)
-    priority_rank      = Column(Integer, nullable=False, default=0)
-    scored_at          = Column(DateTime(timezone=True), server_default=func.now())
-    insight_scored_at  = Column(DateTime(timezone=True))
-    invalidated_at     = Column(DateTime(timezone=True))
-    interaction_count  = Column(Integer, nullable=False, default=0)
+    id           = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id   = Column(String, ForeignKey("companies.id"), unique=True, nullable=False)
+    urgency      = Column(String, nullable=False)
+    urgency_rank = Column(Integer, nullable=False)
+    updated_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 # ─── Pydantic request / response schemas ─────────────────────────────────────
 
@@ -457,6 +445,13 @@ class InteractionCreate(BaseModel):
     date:         date
     type:         InteractionType
     notes:        str = Field(..., min_length=1, max_length=2000)
+    urgency:      UrgencyLevel     # required on the Quick Log Form path
+
+    @validator("date")
+    def date_not_in_future(cls, v):
+        if v > date.today():
+            raise ValueError("Interaction date cannot be in the future")
+        return v
 
 class CompanyCreate(BaseModel):
     id:       Optional[str] = None     # auto-assigned if omitted
@@ -471,24 +466,12 @@ class ContactCreate(BaseModel):
     role:       Optional[str] = None
     email:      Optional[str] = None
 
-# ─── AI structured output schemas (LangChain withStructuredOutput) ────────────
-
-class CompanyScoringResult(BaseModel):
-    """Structured output from the batch priority scorer."""
-    company_id:         str
-    urgency:            UrgencyLevel
-    reason:             str  = Field(..., description="One sentence. Why this urgency now?")
-    recommended_action: str  = Field(..., description="One specific next step the user should take.")
-    priority_rank:      int  = Field(..., ge=1, description="1 = most urgent")
-
-class BatchScoringOutput(BaseModel):
-    """Full output of a batch scoring call."""
-    scores: list[CompanyScoringResult]
+# ─── AI structured output schemas — insight + draft only (scoring removed) ────
 
 class CompanyInsightOutput(BaseModel):
     """Structured output for per-company deep insight (non-streaming alternative)."""
-    ai_brief: str = Field(..., description="2-3 sentences on where the relationship stands.")
-    blocker:  str = Field(..., description="The single thing blocking progress.")
+    ai_brief:    str = Field(..., description="2-3 sentences on where the relationship stands.")
+    blocker:     str = Field(..., description="The single thing blocking progress.")
     next_action: str = Field(..., description="Specific action with full context.")
 ```
 
@@ -497,7 +480,7 @@ class CompanyInsightOutput(BaseModel):
 | Query | Index Used | Estimated cost |
 |---|---|---|
 | Dashboard: all scores ranked | `idx_company_scores_rank` | Sequential scan (8 rows, trivial) |
-| Rescore invalidation: find score by company | `idx_company_scores_co_id` (unique) | Index seek |
+| Urgency upsert on interaction log | `idx_company_scores_co_id` (unique) | Index seek |
 | Context builder: all interactions for a company | `idx_interactions_company` | Index range scan |
 | Last-contact date per company | `idx_interactions_company_date` | Index range scan, LIMIT 1 |
 | Agent: interactions for a contact name | `idx_interactions_contact` | Index scan |
@@ -505,136 +488,112 @@ class CompanyInsightOutput(BaseModel):
 
 ---
 
-## 3. AI Scoring Engine & Invalidation Strategy
+## 3. Urgency Model
 
-### 3.1 Scoring Service Architecture
+### 3.1 How Urgency Works
 
-The scoring engine has two modes:
+Urgency is **user-set**, not AI-inferred. When logging an interaction via the
+Quick Log Form, the user picks one of four labels. That label is written to
+both `interactions` (historical record of what was picked, nullable) and
+`company_scores` (current dashboard state, always set).
 
-| Mode | Trigger | Scope | LangChain Pattern |
-|---|---|---|---|
-| **Batch** | Dashboard load (cache miss) | All companies | Structured output, one call |
-| **Single** | After interaction logged | One company | Structured output, one call |
+The dashboard reads `company_scores` directly and sorts by `urgency_rank`.
+No LLM call is involved in this path at all.
 
-Both modes share the same prompt template and output schema — only the number of companies in the context differs.
+```
+User fills Quick Log Form (Contact, Type, Notes, Urgency)
+  → INSERT into interactions (urgency included)
+  → UPSERT into company_scores (urgency + urgency_rank)
+  → Dashboard GET /api/priorities reads company_scores
+  → Sorts by urgency_rank ASC
+  → Done
+```
 
-### 3.2 Prompt Context Construction
+Interactions logged through the **chat agent** do not set urgency — the
+agent's `insert_interaction` tool has no urgency argument, the DB column is
+nullable, and `company_scores` is left untouched. Chat is for logging and
+asking, not for ranking; urgency only ever changes through the form.
+
+### 3.2 Urgency Rank Mapping
+
+| Label | Rank | Meaning |
+|---|---|---|
+| 🔴 Hot | 1 | Time-sensitive commitment, deal going quiet |
+| 🟡 Watch | 2 | Open question, slow response, competitor risk |
+| 🟢 Stable | 3 | Clear next step, known timeline |
+| ⚫ Stale | 4 | No meaningful contact in 60+ days |
+
+### 3.3 Seed-Time / Company-Creation Default
+
+Every company gets an initial `company_scores` row the moment it exists —
+at seed time, and again whenever `insert_company`/`POST /api/companies`
+creates a new one — with `urgency='stale'`, `urgency_rank=4`. This
+guarantees the dashboard always has something to show, even before the
+first interaction is logged.
 
 ```python
-# services/ai/priority_service.py
+# db/seed.py
 
-def build_company_context(company: CompanyORM) -> str:
-    """
-    Serialises a single company and its full interaction history
-    into a deterministic, token-efficient string for the prompt.
-    """
-    interactions_text = "\n".join([
-        f"  [{i.date}] {i.type.upper()} with {i.contact_name or 'unknown'}: {i.notes}"
-        for i in company.interactions   # already ordered by date DESC via ORM
-    ]) or "  (no interactions yet)"
-
-    contacts_text = ", ".join([
-        f"{c.name} ({c.role or 'unknown role'})"
-        for c in company.contacts
-    ]) or "no contacts on file"
-
-    last_interaction_days = _days_since(company.interactions[0].date) \
-                            if company.interactions else None
-    last_contact_str = (
-        f"{last_interaction_days} days ago"
-        if last_interaction_days is not None else "never"
-    )
-
-    return f"""
-COMPANY: {company.name}
-  ID:       {company.id}
-  Status:   {company.status}
-  Industry: {company.industry or "unknown"}
-  Size:     {company.size or "unknown"} employees
-  Contacts: {contacts_text}
-  Last contact: {last_contact_str}
-  Interaction history (most recent first):
-{interactions_text}
-""".strip()
-
-def build_batch_prompt(companies: list[CompanyORM], today: date) -> str:
-    company_blocks = "\n\n---\n\n".join(
-        build_company_context(c) for c in companies
-    )
-    return BATCH_SCORING_PROMPT_TEMPLATE.format(
-        today=today.isoformat(),
-        company_blocks=company_blocks
-    )
+def seed_default_scores(session, companies):
+    for company in companies:
+        session.add(CompanyScoreORM(
+            company_id=company.id, urgency="stale", urgency_rank=4
+        ))
+    session.commit()
 ```
 
-### 3.3 Prompt Template — Batch Priority Scorer
-
-```
-BATCH_SCORING_PROMPT_TEMPLATE = """
-You are a relationship intelligence engine for a small business CRM.
-Today is {today}.
-
-Analyse the following customer and prospect relationships. For each company:
-1. Assign an urgency level using EXACTLY these definitions:
-   - hot:    A time-sensitive commitment was made and not acted on, OR a large deal (100+ employees) is going quiet after recent engagement
-   - watch:  An unanswered question sits open, a competitor risk is mentioned, or a follow-up is overdue but not critical
-   - stable: A clear next step exists with a known timeline; no immediate action needed
-   - stale:  No meaningful contact in 60+ days; relationship at risk of dying
-
-2. Write a reason — one specific sentence explaining WHY this urgency level applies NOW.
-   Reference the actual notes. Be specific: name the person, the date, the commitment.
-   BAD:  "Follow up soon."
-   GOOD: "Tom said reconnect next week (Aug 5) — 9 days have passed with no IT intro."
-
-3. Write a recommended_action — one concrete, specific next step the user should take.
-   BAD:  "Send a follow-up email."
-   GOOD: "Email Tom referencing the IT intro he promised — confirm Aug 20 as the review date."
-
-4. Assign priority_rank — 1 = most urgent, no ties.
-
-Return ONLY valid JSON conforming to the BatchScoringOutput schema.
-Do not explain yourself. Do not include markdown. Output raw JSON only.
-
-RELATIONSHIPS TO ANALYSE:
-
-{company_blocks}
-"""
-```
-
-### 3.4 LangChain Scoring Call
+### 3.4 Write Path (data_service)
 
 ```python
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
-from schemas.ai import BatchScoringOutput, CompanyScoringResult
+# services/data_service.py
 
-llm = ChatOpenAI(
-    model="google/gemini-flash-1.5",
-    openai_api_base="https://openrouter.ai/api/v1",
-    openai_api_key=settings.OPENROUTER_API_KEY,
-    temperature=0.2,       # low temp for deterministic scoring
-    max_tokens=2048,
-    timeout=30,
-)
+URGENCY_RANK = {"hot": 1, "watch": 2, "stable": 3, "stale": 4}
 
-structured_llm = llm.with_structured_output(BatchScoringOutput)
-
-async def score_companies_batch(
-    companies: list[CompanyORM],
+async def log_interaction_and_update_score(
+    body: InteractionCreate,
     db: AsyncSession
-) -> list[CompanyScoringResult]:
-    today  = date.today()
-    prompt = build_batch_prompt(companies, today)
-    output: BatchScoringOutput = await structured_llm.ainvoke(prompt)
+) -> InteractionORM:
+    # 1. Insert interaction (urgency required by InteractionCreate)
+    interaction = InteractionORM(
+        company_id=body.company_id,
+        contact_name=body.contact_name,
+        contact_id=body.contact_id,
+        date=body.date,
+        type=body.type,
+        notes=body.notes,
+        urgency=body.urgency,
+    )
+    db.add(interaction)
 
-    # Upsert scores into DB
-    for score in output.scores:
-        await upsert_company_score(db, score, interaction_count=_count_interactions(companies, score.company_id))
+    # 2. Upsert company_scores — this IS the "scoring" step, no LLM involved
+    await db.execute(
+        """
+        INSERT INTO company_scores (company_id, urgency, urgency_rank, updated_at)
+        VALUES (:company_id, :urgency, :urgency_rank, NOW())
+        ON CONFLICT (company_id) DO UPDATE
+            SET urgency      = EXCLUDED.urgency,
+                urgency_rank = EXCLUDED.urgency_rank,
+                updated_at   = NOW()
+        """,
+        {
+            "company_id":   body.company_id,
+            "urgency":      body.urgency,
+            "urgency_rank": URGENCY_RANK[body.urgency],
+        }
+    )
 
-    return sorted(output.scores, key=lambda s: s.priority_rank)
+    await db.commit()
+    await db.refresh(interaction)
+    return interaction
 ```
 
-### 3.5 Insight Streaming (Per-Company)
+### 3.5 Insight Streaming (Per-Company) — separate AI feature, unrelated to ranking
+
+`insight_service` is still an AI feature — it just has nothing to do with
+urgency or ranking. It's triggered when the user expands a company card
+(Flow B) or asks for a draft message (Flow C), and it doesn't cache into
+`company_scores` (that table no longer has AI-generated columns) — it
+regenerates on every request.
 
 ```python
 # services/ai/insight_service.py
@@ -648,18 +607,15 @@ You are a relationship intelligence assistant. Analyse this single company relat
 2. blocker: The single most important thing preventing progress.
    One sentence. Be specific.
 
-3. draft_message: A ready-to-send follow-up message the user can copy.
-   Include a subject line on the first line (format: "Subject: ...").
-   Then a blank line, then the message body.
-   Keep the body to 3-5 sentences. Warm, professional, specific.
+3. next_action: A specific, concrete next step — not "follow up soon."
 
 Respond in this exact format:
 ---BRIEF---
 [your ai_brief here]
 ---BLOCKER---
 [your blocker here]
----DRAFT---
-[subject line and message here]
+---NEXT_ACTION---
+[your next_action here]
 
 COMPANY CONTEXT:
 {company_context}
@@ -669,94 +625,18 @@ async def stream_company_insight(
     company: CompanyORM,
     db: AsyncSession
 ) -> AsyncIterator[dict]:
-    """Yields SSE dicts. Caller is responsible for SSE framing."""
-    prompt  = INSIGHT_PROMPT_TEMPLATE.format(
+    """Yields SSE dicts. Caller is responsible for SSE framing. No cache — regenerated every call."""
+    prompt = INSIGHT_PROMPT_TEMPLATE.format(
         company_context=build_company_context(company)
     )
-    buffer  = ""
-    section = "brief"
-
     async for chunk in streaming_llm.astream(prompt):
-        token    = chunk.content
-        buffer  += token
-        yield {"type": "token", "content": token}
-
-    # Parse sections from buffer and persist to cache
-    parsed = _parse_insight_sections(buffer)
-    await _update_insight_cache(db, company.id, parsed)
+        yield {"type": "token", "content": chunk.content}
     yield {"type": "done", "content": None}
 ```
 
-### 3.6 Invalidation Strategy
-
-The invalidation lifecycle for `company_scores`:
-
-```
-State A: Valid score
-  company_scores.invalidated_at = NULL
-  company_scores.scored_at < 24h ago
-  interaction_count matches current count
-  → Serve from cache
-
-State B: Soft-invalidated (new interaction logged)
-  company_scores.invalidated_at = NOW()
-  → Trigger async rescore of that single company
-  → Dashboard optimistically shows old score with "Updating..." badge
-  → Score replaces on rescore completion
-
-State C: Time-invalidated (no new interactions, but score > 24h old)
-  company_scores.scored_at > 24h ago
-  → Full batch rescore on next dashboard load (cache miss path)
-  → 24h TTL chosen because: relationships don't move that fast; cost control
-
-State D: Count-invalidated (lightweight staleness check, no TTL)
-  current interaction count for company ≠ company_scores.interaction_count
-  → Always rescore, regardless of TTL
-  → Catches edge cases where invalidated_at was missed
-```
-
-```python
-# services/ai/priority_service.py
-
-SCORE_TTL_HOURS  = 24
-INSIGHT_TTL_HOURS = 1   # insight brief expires faster (more token-heavy)
-
-async def get_or_score_all(db: AsyncSession) -> list[CompanyScoringResult]:
-    companies = await data_service.get_all_companies_with_interactions(db)
-
-    # Cheap staleness check before LLM call
-    cached = await data_service.get_all_scores(db)
-    cached_map = {s.company_id: s for s in cached}
-
-    stale_ids = []
-    for company in companies:
-        score = cached_map.get(company.id)
-        if (
-            score is None
-            or score.invalidated_at is not None
-            or _hours_since(score.scored_at) > SCORE_TTL_HOURS
-            or score.interaction_count != len(company.interactions)
-        ):
-            stale_ids.append(company.id)
-
-    if not stale_ids:
-        # All cache hits — return sorted cached scores
-        return _sort_cached(cached)
-
-    # Rescore only stale companies (cost optimisation)
-    stale_companies = [c for c in companies if c.id in set(stale_ids)]
-    new_scores      = await score_companies_batch(stale_companies, db)
-
-    # Merge with still-valid cached scores
-    return _merge_and_sort(cached_map, new_scores, stale_ids)
-
-async def invalidate_and_rescore(company_id: str, db: AsyncSession) -> CompanyScoringResult:
-    """Called immediately after a new interaction is logged."""
-    await data_service.invalidate_score(company_id, db)
-    company = await data_service.get_company_with_interactions(company_id, db)
-    scores  = await score_companies_batch([company], db)
-    return scores[0]
-```
+`build_company_context` (name, status, industry, size, contacts, last-contact
+recency, full interaction history) is unchanged from the original design —
+it's just no longer fed into a scoring prompt, only the insight/draft ones.
 
 ---
 
@@ -858,12 +738,13 @@ TABLES:
   contacts(id TEXT PK, company_id TEXT FK, name TEXT, role TEXT, email TEXT)
 
   interactions(id BIGINT PK, company_id TEXT FK, contact_name TEXT,
-               date DATE, type TEXT, notes TEXT, created_at TIMESTAMPTZ)
+               date DATE, type TEXT, notes TEXT, urgency TEXT, created_at TIMESTAMPTZ)
     type values: 'meeting', 'email', 'call', 'demo', 'support_call'
+    urgency: user-set on the Quick Log Form; NULL for interactions logged via chat
 
-  company_scores(company_id TEXT UK FK, urgency TEXT, reason TEXT,
-                 recommended_action TEXT, priority_rank INTEGER, scored_at TIMESTAMPTZ)
-    urgency values: 'hot', 'watch', 'stable', 'stale'
+  company_scores(company_id TEXT UK FK, urgency TEXT, urgency_rank INTEGER, updated_at TIMESTAMPTZ)
+    urgency values: 'hot', 'watch', 'stable', 'stale' — user-set, not AI-scored.
+    This tool cannot change it; only the Quick Log Form (POST /api/interactions) can.
 
 IMPORTANT CONSTRAINTS:
   - You may only use SELECT statements in query_database.
@@ -925,6 +806,8 @@ def insert_interaction(
     """
     Logs a new interaction for a company. Use this when the user says they
     just spoke with, emailed, or met with someone. Do NOT modify existing records.
+    This tool does NOT set urgency — urgency is only ever set by the user via
+    the Quick Log Form, never inferred by the agent.
 
     Args:
         company_id:   The company's ID (e.g. "C001"). Look it up via query_database if unsure.
@@ -942,14 +825,12 @@ def insert_interaction(
             contact_name=contact_name,
             date=date,
             type=type,
-            notes=notes
+            notes=notes,
+            urgency=None,   # chat never sets urgency; company_scores is untouched
         )
         session.add(new_interaction)
         session.commit()
         session.refresh(new_interaction)
-
-    # Trigger rescore (async background task)
-    background_tasks.add_task(priority_service.invalidate_and_rescore, company_id)
 
     return {
         "success":        True,
@@ -982,12 +863,7 @@ def insert_company(
         company = CompanyORM(id=new_id, name=name, industry=industry,
                              status=status, size=size)
         # Seed a default Stale score so it appears on dashboard immediately
-        score   = CompanyScoreORM(
-            company_id=new_id, urgency="stale",
-            reason="No interactions yet — newly added company.",
-            recommended_action="Schedule an initial outreach or discovery call.",
-            priority_rank=999
-        )
+        score   = CompanyScoreORM(company_id=new_id, urgency="stale", urgency_rank=4)
         session.add_all([company, score])
         session.commit()
 
@@ -1123,19 +999,16 @@ const handleSend = async (message: string) => {
 
 ```typescript
 // ─── GET /api/priorities ──────────────────────────────────────────────────────
-// Returns all companies ranked by urgency, with their scores.
-// Scores come from company_scores cache. Cache misses trigger rescore.
+// Returns all companies ranked by urgency_rank. Pure DB read — no AI calls.
 
 interface PrioritiesResponse {
-  companies:   CompanyWithScore[];
+  companies: CompanyWithScore[];
   stats: {
     total:         number;
     prospects:     number;
     customers:     number;
     needAttention: number;    // count of 'hot' + 'watch'
   };
-  scoredAt:    string;        // ISO timestamp of oldest score in result
-  fromCache:   boolean;
 }
 
 // ─── GET /api/companies ───────────────────────────────────────────────────────
@@ -1173,13 +1046,12 @@ interface CreateInteractionRequest {
   date:        string;          // ISO date "YYYY-MM-DD"
   type:        InteractionType;
   notes:       string;
+  urgency:     UrgencyLevel;    // user-selected: hot | watch | stable | stale
 }
 
 interface InteractionCreatedResponse {
   success:       true;
   interactionId: number;
-  // Updated score — available immediately because rescore is synchronous
-  updatedScore:  CompanyScore;
 }
 
 // ─── POST /api/companies ──────────────────────────────────────────────────────
@@ -1233,10 +1105,10 @@ interface ErrorResponse {
 @router.get("/priorities", response_model=PrioritiesResponse)
 async def get_priorities(db: AsyncSession = Depends(get_db)):
     """
-    Returns all companies ranked by urgency score.
-    Serves from cache where valid; triggers rescore where stale.
+    Returns all companies ranked by urgency_rank.
+    Pure DB read — no AI calls.
     """
-    return await priority_service.get_or_score_all(db)
+    return await data_service.get_all_with_scores(db)
 
 
 # routers/company.py
@@ -1283,24 +1155,35 @@ async def stream_draft_message(
 @router.post("/interactions", response_model=InteractionCreatedResponse, status_code=201)
 async def create_interaction(
     body: InteractionCreate,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Logs a new interaction. Synchronously invalidates the company score,
-    then runs rescore as a background task (non-blocking).
-    Returns the new score immediately from cache invalidation response.
+    Logs a new interaction and upserts company_scores with the user-set
+    urgency. No AI calls — pure DB write.
     """
-    interaction = await data_service.insert_interaction(body, db)
-    await priority_service.invalidate_score(body.company_id, db)
-    background_tasks.add_task(priority_service.invalidate_and_rescore, body.company_id)
-    updated_score = await data_service.get_company_score(body.company_id, db)
+    interaction = await data_service.log_interaction_and_update_score(body, db)
+    return InteractionCreatedResponse(success=True, interaction_id=interaction.id)
 
-    return InteractionCreatedResponse(
-        success=True,
-        interaction_id=interaction.id,
-        updated_score=_map_score(updated_score)
-    )
+
+# routers/companies.py
+
+@router.post("/companies", response_model=CompanyCreatedResponse, status_code=201)
+async def create_company(
+    body: CompanyCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Adds a new company and seeds a default company_scores row
+    (urgency='stale') so it shows on the dashboard immediately.
+    """
+    company = await data_service.create_company_with_default_score(body, db)
+    return CompanyCreatedResponse(success=True, company_id=company.id, name=company.name)
+
+
+@router.get("/companies", response_model=CompaniesResponse)
+async def get_companies(db: AsyncSession = Depends(get_db)):
+    """Raw company + contact data, no scores. Used for the quick-log dropdown."""
+    return await data_service.get_all_companies_with_contacts(db)
 
 
 # routers/chat.py
@@ -1423,48 +1306,42 @@ export class APIError extends Error {
 ```python
 # config/settings.py
 
-LLM_TIMEOUT_BATCH_SECONDS   = 30    # batch scoring (all companies)
 LLM_TIMEOUT_INSIGHT_SECONDS = 25    # single company insight
 LLM_TIMEOUT_DRAFT_SECONDS   = 20    # draft message
 LLM_TIMEOUT_AGENT_SECONDS   = 60    # agent (multi-step, more slack)
 
-# services/ai/priority_service.py
+# services/ai/insight_service.py
 
-async def score_companies_batch(...):
+async def stream_company_insight(...):
     try:
-        output = await asyncio.wait_for(
-            structured_llm.ainvoke(prompt),
-            timeout=LLM_TIMEOUT_BATCH_SECONDS
-        )
-        return _process_output(output)
+        async for chunk in asyncio.wait_for(
+            streaming_llm.astream(prompt), timeout=LLM_TIMEOUT_INSIGHT_SECONDS
+        ):
+            yield {"type": "token", "content": chunk.content}
 
     except asyncio.TimeoutError:
-        logger.warning("Batch scoring timed out — serving stale/fallback scores")
-        return await _serve_fallback_scores(companies, db)
-
-    except Exception as exc:
-        logger.error(f"Batch scoring failed: {exc}")
-        raise HTTPException(status_code=503, detail="AI scoring temporarily unavailable")
+        logger.warning("Insight generation timed out")
+        yield {"type": "error", "content": "Insight unavailable — try again"}
 ```
+
+`GET /api/priorities` has no LLM timeout concern at all — it's a plain DB read.
 
 ### 6.2 Fallback States
 
 | Failure Mode | Behaviour | UX |
 |---|---|---|
-| Batch score LLM timeout | Serve stale cached scores (even if invalidated) | Dashboard loads with a "Scores may be outdated" banner |
-| No cached score at all | Return companies with urgency = `null`, reason = "Score pending" | Card shows spinner badge, retries after 5s |
+| Priorities DB read fails | Standard 500 — no AI involved, so no "stale/fallback score" concept needed | Dashboard shows a retry banner |
 | Insight LLM timeout | SSE emits `{type: "error", content: "Insight unavailable — try again"}` | Card shows error state with retry button |
 | Draft LLM timeout | SSE emits `{type: "error", content: "Draft unavailable — try again"}` | Draft area shows retry button |
 | Agent timeout | SSE emits `{type: "error", content: "..."}` | Chat shows error message, user can retry |
-| Agent SQL syntax error | `evaluate_result` node detects error → retries with `[SQL ERROR: ...]` appended to context | Transparent to user unless all retries fail |
-| Agent write tool failure | Tool returns `{success: false, error: "..."}` | Agent responds: "I couldn't log that — [reason]" |
+| Agent SQL syntax error | Tool returns the error string as its result; the model sees it and retries, bounded by `agent_recursion_limit` | Transparent to user unless retries exhaust |
+| Agent write tool failure | Tool returns `"ERROR: ..."` string instead of raising | Agent responds: "I couldn't log that — [reason]" |
+| Quick Log Form validation failure | `InteractionCreate` Pydantic validation (e.g. missing urgency, future date) → 422 | Form shows inline field error |
 
 ```typescript
 // components/dashboard/CompanyCard.tsx
 
-function UrgencyBadge({ score }: { score: CompanyScore | null }) {
-  if (!score) return <Badge variant="outline">Analysing...</Badge>;
-  if (score.isStale) return <Badge variant="secondary">{score.urgency} (refreshing)</Badge>;
+function UrgencyBadge({ score }: { score: CompanyScore } ) {
   return <Badge variant={URGENCY_VARIANT[score.urgency]}>{score.urgency.toUpperCase()}</Badge>;
 }
 ```
@@ -1502,22 +1379,20 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO crm_app;
 
 | Edge Case | Guard |
 |---|---|
-| Company with zero interactions | `build_company_context` returns `"(no interactions yet)"` — scorer assigns `stale`, action = "Schedule initial outreach" |
+| Company with zero interactions | `company_scores` seeded with `urgency='stale'` at creation time — nothing to compute |
 | Agent fuzzy company name match | Tool prompt instructs `ILIKE '%name%'` — agent disambiguates by asking user if multiple matches |
 | Interaction date in the future | `InteractionCreate` Pydantic validator rejects `date > today` |
-| Duplicate company insert (same name) | `insert_company` tool checks `companies WHERE name ILIKE ?` before inserting — returns existing company if found |
+| Duplicate company insert (same name) | `insert_company` tool / `POST /api/companies` checks `companies WHERE name ILIKE ?` before inserting — returns existing company if found |
 | Agent session context too long | Backend truncates `session_history` to last 10 turns before building agent state |
-| Score TTL drift (many interactions logged quickly) | `invalidate_and_rescore` is idempotent — if called concurrently, DB upsert with `ON CONFLICT (company_id) DO UPDATE` prevents duplicates |
-| LangGraph infinite loop | `retry_count` field in state enforces max 3 SQL retries; if exceeded, `formulate_answer` node responds: "I couldn't retrieve that data — please rephrase your question." |
+| Concurrent Quick Log Form submissions for the same company | `ON CONFLICT (company_id) DO UPDATE` on the `company_scores` upsert — last write wins, no duplicate rows |
+| Agent recursion / tool-call loop | `agent_recursion_limit` bounds total steps; if exceeded, the stream emits a `GraphRecursionError`-derived error event asking the user to rephrase |
 
 ### 6.5 Cost Optimisation
 
 | Strategy | Mechanism | Saving |
 |---|---|---|
-| Score cache (24h TTL) | `company_scores` table; batch rescore only on miss | ~90% of dashboard loads served from cache |
-| Partial batch rescore | Only stale company IDs are rescored, not all | Proportional to churn rate |
-| Low temperature for scoring | `temperature=0.2` — less sampling, more consistent, cheaper to cache | Reduces token variance |
-| Insight cache (1h TTL) | `ai_brief` + `blocker` stored in `company_scores` after first expand | Most card expands served from cache |
+| No scoring LLM calls at all | Urgency is user-set, `/api/priorities` is a pure DB read | Eliminates the single largest LLM cost driver in the original design |
+| Insight: no cache, generated on demand only | Only called when a user actually expands a card | No background/batch cost — cost scales with real usage |
 | Draft: no cache | Always generated fresh — draft quality degrades if stale | Intentional: stale drafts are worse than latency |
 | Agent: narrow scope SQL | System prompt instructs agent to filter by company_id when possible | Smaller result sets → smaller context |
 | Session history capped | Last 10 turns only — older context rarely useful for pipeline questions | Prevents unbounded token growth |
@@ -1530,9 +1405,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO crm_app;
 # Backend (.env)
 OPENROUTER_API_KEY=sk-or-...
 DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/crm
-SCORE_TTL_HOURS=24
-INSIGHT_TTL_HOURS=1
-LLM_MODEL=google/gemini-flash-1.5
+LLM_MODEL=openai/gpt-4o-mini
 LOG_LEVEL=INFO
 
 # Frontend (.env.local)
@@ -1549,12 +1422,12 @@ micro-crm/
 │   │   └── settings.py
 │   ├── routers/
 │   │   ├── priorities.py
+│   │   ├── companies.py
 │   │   ├── company.py
 │   │   ├── interactions.py
 │   │   └── chat.py
 │   ├── services/
 │   │   ├── ai/
-│   │   │   ├── priority_service.py
 │   │   │   ├── insight_service.py
 │   │   │   └── agent_service.py
 │   │   └── data_service.py
@@ -1603,8 +1476,8 @@ The three open questions from PRD v1.2 are resolved as follows:
 |---|---|---|
 | Draft message format: subject line or plain? | Include subject line (`Subject: ...` on first line, blank line, then body) | More useful — user can copy-paste directly into email client without editing. |
 | Chat history: within-session or independent? | Within-session (React state, max 10 turns) | Agent needs context to follow up ("what about the second one?"). No DB persistence — keeps data model clean. |
-| Score refresh: timer or after interaction? | After interaction logged only (no auto-timer) | Auto-timer would waste LLM calls without new data. Manual refresh button available as escape hatch. Relationships don't move minute-to-minute. |
+| Score refresh: timer or user action? | User action only — picked directly on the Quick Log Form, no timer, no LLM | v1.1: superseded the original "AI rescore on a timer/invalidation" question entirely — there's no score to refresh, only a label to re-pick next time the user logs an interaction. |
 
 ---
 
-*End of Document — TDD v1.0*
+*End of Document — TDD v1.1*
