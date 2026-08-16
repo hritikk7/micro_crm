@@ -18,7 +18,16 @@ import type {
   UrgencyLevel,
 } from "@/types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+/**
+ * Empty in production: the frontend and backend are two services behind one
+ * Vercel domain, so `/api/*` is same-origin and gets rewritten to the FastAPI
+ * service by vercel.json. Local dev sets NEXT_PUBLIC_API_URL=http://localhost:8000
+ * in .env.local to reach a separately-running uvicorn.
+ *
+ * Note this must NOT be set in Vercel's env vars — an absolute URL there would
+ * turn these into cross-origin requests and reintroduce the CORS/path problems.
+ */
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 /**
  * Backend Stage 2–4 (dashboard/insight/CRUD endpoints) don't exist yet — only

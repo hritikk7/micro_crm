@@ -9,13 +9,19 @@
       "entrypoint": "api/index.py"
     }
   },
-"rewrites": [
+  "rewrites": [
     {
-      "source": "/api/backend/:path*",
+      "source": "/api/(.*)",
       "destination": {
         "type": "service",
-        "service": "backend",
-        "path": "/api/:path*"
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/health(.*)",
+      "destination": {
+        "type": "service",
+        "service": "backend"
       }
     },
     {
