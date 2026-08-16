@@ -118,8 +118,6 @@ packaging==26.3
     #   pytest
 pluggy==1.6.0
     # via pytest
-psycopg2==2.9.12
-    # via micro-crm-backend
 pydantic==2.13.4
     # via
     #   fastapi
