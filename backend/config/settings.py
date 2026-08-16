@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_timeout_agent_seconds: int = 60
     llm_timeout_insight_seconds: int = 25
+    llm_timeout_draft_seconds: int = 20
 
     # Agent behaviour
     agent_recursion_limit: int = 12

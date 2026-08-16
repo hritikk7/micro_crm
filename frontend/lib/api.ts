@@ -263,7 +263,11 @@ export async function* streamInsight(companyId: string): AsyncGenerator<InsightS
     return;
   }
   const res = await fetch(`${BASE_URL}/api/company/${companyId}/insight`);
-  yield* readSSEStream<InsightSSEData>(res.body!);
+  if (!res.ok || !res.body) {
+    yield { type: "error", content: "Insight unavailable — try again" };
+    return;
+  }
+  yield* readSSEStream<InsightSSEData>(res.body);
 }
 
 // ─── GET /api/company/:id/draft (SSE) ─────────────────────────────────────────
@@ -295,7 +299,11 @@ export async function* streamDraft(companyId: string): AsyncGenerator<DraftSSEDa
     return;
   }
   const res = await fetch(`${BASE_URL}/api/company/${companyId}/draft`);
-  yield* readSSEStream<DraftSSEData>(res.body!);
+  if (!res.ok || !res.body) {
+    yield { type: "error", content: "Draft unavailable — try again" };
+    return;
+  }
+  yield* readSSEStream<DraftSSEData>(res.body);
 }
 
 // ─── POST /api/chat (SSE) — real backend, wired today ─────────────────────────

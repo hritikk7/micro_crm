@@ -45,13 +45,28 @@ COMPANY CONTEXT:
 """.strip()
 
 
-def _build_llm() -> ChatOpenAI:
+DRAFT_PROMPT_TEMPLATE = """
+You are a relationship intelligence assistant. Write a ready-to-send follow-up message for this
+company relationship, based on the interaction history below. Be specific — reference real names,
+dates, and what was actually said, so the message reads like it comes from someone who was there.
+
+Respond in exactly this format, nothing else — no preamble, no markdown, no extra commentary:
+Subject: <subject line>
+
+<message body>
+
+COMPANY CONTEXT:
+{company_context}
+""".strip()
+
+
+def _build_llm(*, temperature: float = 0.3, timeout: int | None = None) -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.llm_model,
         api_key=settings.openrouter_api_key,
         base_url=settings.openrouter_base_url,
-        temperature=0.3,
-        timeout=settings.llm_timeout_insight_seconds,
+        temperature=temperature,
+        timeout=timeout or settings.llm_timeout_insight_seconds,
         max_retries=1,
         default_headers={
             "HTTP-Referer": "http://localhost:3000",
@@ -118,5 +133,30 @@ async def stream_company_insight(company_context: str) -> AsyncIterator[dict]:
     except Exception:
         logger.exception("Insight generation failed")
         yield {"type": "error", "content": "Insight unavailable — try again"}
+    finally:
+        yield {"type": "done", "content": None}
+
+
+async def stream_draft_message(company_context: str) -> AsyncIterator[dict]:
+    """Yields SSE envelope dicts: {type, content} for a ready-to-send follow-up
+    message. Caller does SSE framing. No cache — per TRD §6.5, a stale draft is
+    worse than the latency of regenerating one. Takes a pre-built context string
+    (not an ORM object) so the caller's DB session can close before the LLM call
+    starts, same reasoning as stream_company_insight.
+    """
+    prompt = DRAFT_PROMPT_TEMPLATE.format(company_context=company_context)
+    llm = _build_llm(temperature=0.5, timeout=settings.llm_timeout_draft_seconds)
+
+    try:
+        async with asyncio.timeout(settings.llm_timeout_draft_seconds):
+            async for chunk in llm.astream([HumanMessage(content=prompt)]):
+                if isinstance(chunk, AIMessageChunk) and chunk.text:
+                    yield {"type": "token", "content": str(chunk.text)}
+    except TimeoutError:
+        logger.warning("Draft generation timed out")
+        yield {"type": "error", "content": "Draft unavailable — try again"}
+    except Exception:
+        logger.exception("Draft generation failed")
+        yield {"type": "error", "content": "Draft unavailable — try again"}
     finally:
         yield {"type": "done", "content": None}

@@ -122,6 +122,7 @@ class CompanyWithScore(CamelModel):
     industry: str | None
     status: CompanyStatus
     size: int | None
+    contacts: list[ContactOut]
     score: CompanyScoreOut
     last_interaction: InteractionOut | None
     last_contact_date: date | None

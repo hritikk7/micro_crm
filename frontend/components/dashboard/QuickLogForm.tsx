@@ -39,7 +39,8 @@ export function QuickLogForm({
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const [contactId, setContactId] = useState<string>(company.contacts[0]?.id ?? "");
+  const contacts = company.contacts ?? [];
+  const [contactId, setContactId] = useState<string>(contacts[0]?.id ?? "");
   const [type, setType] = useState<InteractionType>("call");
   const [notes, setNotes] = useState("");
   const [urgency, setUrgency] = useState<UrgencyLevel>(company.score.urgency);
@@ -52,7 +53,7 @@ export function QuickLogForm({
     }
     setIsSaving(true);
     try {
-      const contact = company.contacts.find((c) => c.id === contactId) ?? null;
+      const contact = contacts.find((c) => c.id === contactId) ?? null;
       await createInteraction({
         companyId: company.id,
         contactId: contact?.id ?? null,
@@ -83,12 +84,12 @@ export function QuickLogForm({
               <SelectValue placeholder="Select contact" />
             </SelectTrigger>
             <SelectContent>
-              {company.contacts.map((c) => (
+              {contacts.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
                 </SelectItem>
               ))}
-              {company.contacts.length === 0 && (
+              {contacts.length === 0 && (
                 <SelectItem value="__none" disabled>
                   No contacts on file
                 </SelectItem>
