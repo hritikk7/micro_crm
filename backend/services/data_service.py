@@ -241,6 +241,10 @@ async def get_all_with_scores(db: AsyncSession) -> PrioritiesResponse:
                 industry=c.industry,
                 status=c.status,
                 size=c.size,
+                contacts=[
+                    ContactOut(id=ct.id, name=ct.name, role=ct.role, email=ct.email)
+                    for ct in c.contacts
+                ],
                 score=score_out,
                 last_interaction=last_out,
                 last_contact_date=last.date if last is not None else None,
