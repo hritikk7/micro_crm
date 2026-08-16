@@ -28,7 +28,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
  * every function's real-fetch implementation is already written alongside
  * its mock counterpart.
  */
-const USE_MOCK_DASHBOARD_API = true;
+const USE_MOCK_DASHBOARD_API = false;
 
 // ─── Error class (TRD §5.4) ───────────────────────────────────────────────────
 
