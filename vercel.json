@@ -3,21 +3,9 @@
     "frontend": {
       "root": "frontend",
       "framework": "nextjs"
-    },
-    "backend": {
-      "root": "backend",
-      "entrypoint": "api/index.py"
     }
   },
-"rewrites": [
-    {
-      "source": "/api/backend/:path*",
-      "destination": {
-        "type": "service",
-        "service": "backend",
-        "path": "/api/:path*"
-      }
-    },
+  "rewrites": [
     {
       "source": "/(.*)",
       "destination": {
