@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_model: str = "google/gemini-flash-1.5"
     llm_temperature: float = 0.0
     llm_timeout_agent_seconds: int = 60
+    llm_timeout_insight_seconds: int = 25
 
     # Agent behaviour
     agent_recursion_limit: int = 12

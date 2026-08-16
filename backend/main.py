@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from config.settings import settings
 from db.database import engine
-from routers import chat, companies, interactions, priorities
+from routers import chat, companies, company, interactions, priorities
 
 logging.basicConfig(level=settings.log_level)
 
@@ -36,6 +36,7 @@ app.include_router(chat.router)
 app.include_router(priorities.router)
 app.include_router(companies.router)
 app.include_router(interactions.router)
+app.include_router(company.router)
 
 
 @app.get("/health")
