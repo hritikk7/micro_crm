@@ -9,12 +9,13 @@
       "entrypoint": "api/index.py"
     }
   },
-  "rewrites": [
+"rewrites": [
     {
-      "source": "/api/backend/(.*)",
+      "source": "/api/backend/:path*",
       "destination": {
         "type": "service",
-        "service": "backend"
+        "service": "backend",
+        "path": "/api/:path*"
       }
     },
     {
