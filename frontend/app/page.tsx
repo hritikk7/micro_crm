@@ -1,17 +1,21 @@
 import { PipelineChat } from "@/components/chat/PipelineChat";
 import { PriorityDashboard } from "@/components/dashboard/PriorityDashboard";
+import { TopBar } from "@/components/layout/TopBar";
 
 export default function Home() {
   return (
-    <div className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 gap-6 p-6 lg:grid-cols-[1fr_380px]">
-      <main className="min-w-0">
-        <PriorityDashboard />
-      </main>
-      <aside className="min-h-[400px] lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
-        <div className="h-full rounded-xl border bg-card p-4">
-          <PipelineChat />
-        </div>
-      </aside>
-    </div>
+    <>
+      <TopBar />
+      <div className="mx-auto grid w-full max-w-[1200px] flex-1 grid-cols-1 gap-8 px-6 py-8 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <main className="min-w-0">
+          <PriorityDashboard />
+        </main>
+        <aside className="lg:sticky lg:top-16 lg:h-[calc(100vh-6rem)]">
+          <div className="shadow-card flex h-full min-h-[480px] flex-col overflow-hidden rounded-xl border bg-card">
+            <PipelineChat />
+          </div>
+        </aside>
+      </div>
+    </>
   );
 }

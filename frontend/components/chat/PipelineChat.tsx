@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList, type ToolActivity } from "@/components/chat/MessageList";
+import { Button } from "@/components/ui/button";
 import { streamChat } from "@/lib/api";
 import type { ChatMessage } from "@/types";
 
@@ -55,17 +57,38 @@ export function PipelineChat() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
-      <h2 className="text-lg font-semibold">Pipeline Chat</h2>
+    <div className="flex h-full flex-col">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="text-brand size-3.5" aria-hidden />
+          <h2 className="text-[13px] font-semibold tracking-tight">Pipeline Chat</h2>
+        </div>
+        {messages.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setMessages([])}
+            disabled={isStreaming}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+
       <div className="min-h-0 flex-1">
         <MessageList
           messages={messages}
           streamingContent={streamingContent}
           activeTools={activeTools}
           isStreaming={isStreaming}
+          onExampleClick={handleSend}
         />
       </div>
-      <ChatInput onSend={handleSend} disabled={isStreaming} />
+
+      <div className="shrink-0 border-t bg-card p-3">
+        <ChatInput onSend={handleSend} disabled={isStreaming} />
+      </div>
     </div>
   );
 }

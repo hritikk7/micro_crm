@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check, Copy, PenLine, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,10 +10,12 @@ import { streamDraft } from "@/lib/api";
 export function DraftMessagePanel({ companyId }: { companyId: string }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [justCopied, setJustCopied] = useState(false);
 
   async function handleDraft() {
     setDraft("");
     setIsStreaming(true);
+    setJustCopied(false);
     try {
       for await (const event of streamDraft(companyId)) {
         if (event.type === "token" && event.content) {
@@ -30,31 +33,54 @@ export function DraftMessagePanel({ companyId }: { companyId: string }) {
   async function handleCopy() {
     if (!draft) return;
     await navigator.clipboard.writeText(draft);
-    toast.success("Copied to clipboard");
+    setJustCopied(true);
+    setTimeout(() => setJustCopied(false), 2000);
+  }
+
+  if (draft === null) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-8 gap-1.5 bg-card text-xs"
+        onClick={handleDraft}
+        disabled={isStreaming}
+      >
+        <PenLine className="size-3.5" />
+        Draft message
+      </Button>
+    );
   }
 
   return (
-    <div className="space-y-2">
-      {draft === null ? (
-        <Button size="sm" variant="secondary" onClick={handleDraft} disabled={isStreaming}>
-          Draft Message
+    <div className="relative rounded-lg border bg-card">
+      <div className="absolute top-2 right-2 flex gap-0.5">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          onClick={handleCopy}
+          disabled={isStreaming || !draft}
+          aria-label="Copy draft"
+        >
+          {justCopied ? <Check className="text-stable size-3.5" /> : <Copy className="size-3.5" />}
         </Button>
-      ) : (
-        <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-          <pre className="whitespace-pre-wrap font-sans text-sm">
-            {draft}
-            {isStreaming && <span className="animate-pulse">▍</span>}
-          </pre>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={handleCopy} disabled={isStreaming || !draft}>
-              Copy
-            </Button>
-            <Button size="sm" variant="ghost" onClick={handleDraft} disabled={isStreaming}>
-              Regenerate
-            </Button>
-          </div>
-        </div>
-      )}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          onClick={handleDraft}
+          disabled={isStreaming}
+          aria-label="Regenerate draft"
+        >
+          <RotateCw className="size-3.5" />
+        </Button>
+      </div>
+
+      <pre className="px-3.5 py-3 pr-20 font-sans text-sm leading-relaxed whitespace-pre-wrap">
+        {draft}
+        {isStreaming && <span className="text-brand animate-caret">▍</span>}
+      </pre>
     </div>
   );
 }
