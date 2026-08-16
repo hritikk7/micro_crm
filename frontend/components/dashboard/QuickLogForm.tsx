@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createInteraction } from "@/lib/api";
+import { URGENCY_META } from "@/lib/urgency";
+import { cn } from "@/lib/utils";
 import type { CompanyWithScore, InteractionType, UrgencyLevel } from "@/types";
 
 const INTERACTION_TYPES: { value: InteractionType; label: string }[] = [
@@ -21,15 +23,12 @@ const INTERACTION_TYPES: { value: InteractionType; label: string }[] = [
   { value: "email", label: "Email" },
   { value: "call", label: "Call" },
   { value: "demo", label: "Demo" },
-  { value: "support_call", label: "Support Call" },
+  { value: "support_call", label: "Support call" },
 ];
 
-const URGENCY_OPTIONS: { value: UrgencyLevel; label: string }[] = [
-  { value: "hot", label: "🔴 Hot" },
-  { value: "watch", label: "🟡 Watch" },
-  { value: "stable", label: "🟢 Stable" },
-  { value: "stale", label: "⚫ Stale" },
-];
+const URGENCY_OPTIONS: UrgencyLevel[] = ["hot", "watch", "stable", "stale"];
+
+const EYEBROW = "text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
 
 export function QuickLogForm({
   company,
@@ -63,7 +62,7 @@ export function QuickLogForm({
         notes: notes.trim(),
         urgency,
       });
-      toast.success(`Logged. ${company.name} updated to ${urgency}.`);
+      toast.success(`Logged. ${company.name} updated to ${URGENCY_META[urgency].label}.`);
       onSaved();
     } catch {
       toast.error("Couldn't save that interaction — try again.");
@@ -73,12 +72,14 @@ export function QuickLogForm({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border bg-muted/30 p-3" onClick={(e) => e.stopPropagation()}>
-      <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-3.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="quick-log-contact">Contact</Label>
+          <Label htmlFor="quick-log-contact" className={EYEBROW}>
+            Contact
+          </Label>
           <Select value={contactId} onValueChange={(v) => v && setContactId(v)}>
-            <SelectTrigger id="quick-log-contact" className="w-full">
+            <SelectTrigger id="quick-log-contact" className="h-8 w-full bg-card text-sm">
               <SelectValue placeholder="Select contact" />
             </SelectTrigger>
             <SelectContent>
@@ -97,9 +98,11 @@ export function QuickLogForm({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="quick-log-type">Type</Label>
+          <Label htmlFor="quick-log-type" className={EYEBROW}>
+            Type
+          </Label>
           <Select value={type} onValueChange={(v) => v && setType(v as InteractionType)}>
-            <SelectTrigger id="quick-log-type" className="w-full">
+            <SelectTrigger id="quick-log-type" className="h-8 w-full bg-card text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -114,38 +117,55 @@ export function QuickLogForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="quick-log-notes">Notes</Label>
+        <Label htmlFor="quick-log-notes" className={EYEBROW}>
+          Notes
+        </Label>
         <Textarea
           id="quick-log-notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="What happened?"
           rows={3}
+          className="resize-none bg-card text-sm"
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="quick-log-urgency">Urgency</Label>
+        <Label htmlFor="quick-log-urgency" className={EYEBROW}>
+          Urgency
+        </Label>
         <Select value={urgency} onValueChange={(v) => v && setUrgency(v as UrgencyLevel)}>
-          <SelectTrigger id="quick-log-urgency" className="w-full">
+          <SelectTrigger id="quick-log-urgency" className="h-8 w-full bg-card text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {URGENCY_OPTIONS.map((u) => (
-              <SelectItem key={u.value} value={u.value}>
-                {u.label}
+            {URGENCY_OPTIONS.map((level) => (
+              <SelectItem key={level} value={level}>
+                <span className="flex items-center gap-2">
+                  <span
+                    className={cn("size-1.5 rounded-full", URGENCY_META[level].dotClassName)}
+                    aria-hidden
+                  />
+                  {URGENCY_META[level].label}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      <div className="flex justify-end gap-2 pt-1">
-        <Button variant="ghost" size="sm" onClick={onCancel} disabled={isSaving}>
+      <div className="flex justify-end gap-2 pt-0.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={onCancel}
+          disabled={isSaving}
+        >
           Cancel
         </Button>
-        <Button size="sm" onClick={handleSave} disabled={isSaving}>
-          {isSaving ? "Saving…" : "Save + Reanalyse"}
+        <Button size="sm" className="h-8 text-xs" onClick={handleSave} disabled={isSaving}>
+          {isSaving ? "Saving…" : "Save + reanalyse"}
         </Button>
       </div>
     </div>
